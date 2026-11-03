@@ -79,3 +79,8 @@ spring:
 
   thymeleaf:
     cache: true
+
+# Sem valor padrão: em produção a aplicação não sobe sem REMEMBER_ME_KEY
+app:
+  security:
+    remember-me-key: ${REMEMBER_ME_KEY}
