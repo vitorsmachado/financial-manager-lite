@@ -32,7 +32,7 @@
         <h4 class="mb-0 fw-bold"><i class="bi bi-pie-chart me-2"></i>Orçamento Mensal</h4>
         <div class="d-flex gap-2 align-items-center">
             <form th:action="@{/budgets}" method="get" class="d-flex gap-2">
-                <input type="date" name="period" class="form-control form-control-sm"
+                <input type="date" max="9999-12-31" name="period" class="form-control form-control-sm"
                        th:value="${period + '-01'}" style="width:160px;"/>
                 <button type="submit" class="btn btn-outline-secondary btn-sm">Ver</button>
             </form>
@@ -114,7 +114,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Período *</label>
-                        <input type="date" name="period" class="form-control"
+                        <input type="date" max="9999-12-31" name="period" class="form-control"
                                th:value="${period + '-01'}" required/>
                     </div>
                     <div class="mb-3">

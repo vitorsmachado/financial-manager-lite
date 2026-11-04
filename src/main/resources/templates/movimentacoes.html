@@ -1495,11 +1495,11 @@
                         <div class="row g-3">
                             <div class="col-sm-6">
                                 <label class="form-label">Data *</label>
-                                <input type="date" name="entryDate" id="uEntryDate" class="form-control" required/>
+                                <input type="date" max="9999-12-31" name="entryDate" id="uEntryDate" class="form-control" required/>
                             </div>
                             <div class="col-sm-6" id="uReceiveDateGroup" style="display:none;">
                                 <label class="form-label">Data de Recebimento</label>
-                                <input type="date" name="receiveDate" id="uReceiveDate" class="form-control"/>
+                                <input type="date" max="9999-12-31" name="receiveDate" id="uReceiveDate" class="form-control"/>
                             </div>
                             <div class="col-sm-6" id="uInvoiceMonthGroup" style="display:none;">
                                 <label class="form-label">Fatura</label>
@@ -1583,7 +1583,7 @@
                         <div class="row g-3 mt-0">
                             <div class="col-sm-6">
                                 <label class="form-label" id="uInstStartDateLabel">Data da 1ª parcela</label>
-                                <input type="date" name="installmentStartDate" id="uInstStartDate"
+                                <input type="date" max="9999-12-31" name="installmentStartDate" id="uInstStartDate"
                                        class="form-control" disabled
                                        title="Deixe em branco para usar a data de hoje"/>
                                 <div class="form-text text-muted" id="uInstStartDateHint" style="display:none;"></div>
@@ -1817,7 +1817,7 @@
                     <p class="small text-muted mb-2" id="applySingleDesc"></p>
                     <div>
                         <label class="form-label small">Data de lançamento</label>
-                        <input type="date" name="customDate" id="applySingleDate" class="form-control form-control-sm"/>
+                        <input type="date" max="9999-12-31" name="customDate" id="applySingleDate" class="form-control form-control-sm"/>
                         <div class="form-text" id="applySingleHint">Deixe em branco para usar o dia configurado.</div>
                     </div>
                 </div>
@@ -1851,7 +1851,7 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Data de início do atraso *</label>
-                        <input type="date" name="defaultSinceDate" id="markDefaultSince"
+                        <input type="date" max="9999-12-31" name="defaultSinceDate" id="markDefaultSince"
                                class="form-control" required/>
                     </div>
                     <div class="row g-3">
@@ -1935,7 +1935,7 @@
                     <!-- Data do pagamento (modo PAID) -->
                     <div id="cdPaidDateGroup" class="mb-3 d-none">
                         <label class="form-label fw-semibold">Data do pagamento *</label>
-                        <input type="date" id="cdPaymentDatePicker" class="form-control"
+                        <input type="date" max="9999-12-31" id="cdPaymentDatePicker" class="form-control"
                                oninput="cdOnDateChange(this.value)"/>
                         <div class="form-text">Se pagou no vencimento ou antes, não haverá encargos.</div>
                     </div>
@@ -2361,7 +2361,7 @@
                                step="0.01" min="0.01" value="${uniform}" placeholder="0,00"/>
                     </div>
                     <div class="col-6">
-                        <input type="date" name="customDueDates" class="form-control form-control-sm"
+                        <input type="date" max="9999-12-31" name="customDueDates" class="form-control form-control-sm"
                                value="${dueVal}"/>
                     </div>
                 </div>`);
@@ -3001,7 +3001,7 @@
                     <div class="row g-3 mb-3">
                         <div class="col-sm-6">
                             <label class="form-label">Data da 1ª parcela</label>
-                            <input type="date" name="installmentStartDate" id="instEditStartDate" class="form-control"/>
+                            <input type="date" max="9999-12-31" name="installmentStartDate" id="instEditStartDate" class="form-control"/>
                             <div class="form-text text-muted">Redistribui todas as parcelas não pagas a partir desta data.</div>
                         </div>
                         <div class="col-sm-6">
@@ -3099,7 +3099,7 @@
                     <div class="row g-3 mb-3">
                         <div class="col-sm-6">
                             <label class="form-label">Data da 1ª parcela</label>
-                            <input type="date" name="installmentStartDate" id="mdEditStartDate" class="form-control"/>
+                            <input type="date" max="9999-12-31" name="installmentStartDate" id="mdEditStartDate" class="form-control"/>
                             <div class="form-text text-muted">Redistribui todas as parcelas não recebidas a partir desta data.</div>
                         </div>
                         <div class="col-sm-6">
@@ -3166,7 +3166,7 @@
 
                     <div class="mb-3">
                         <label class="form-label">Data *</label>
-                        <input type="date" name="entryDate" id="editDate" class="form-control" required/>
+                        <input type="date" max="9999-12-31" name="entryDate" id="editDate" class="form-control" required/>
                     </div>
 
                     <div class="mb-3">

@@ -131,7 +131,7 @@
                     <div class="row g-3 mb-3">
                         <div class="col-6">
                             <label class="form-label">Data *</label>
-                            <input type="date" name="transactionDate" class="form-control"
+                            <input type="date" max="9999-12-31" name="transactionDate" class="form-control"
                                    th:value="${#dates.format(#dates.createNow(),'yyyy-MM-dd')}" required/>
                         </div>
                         <div class="col-6">
