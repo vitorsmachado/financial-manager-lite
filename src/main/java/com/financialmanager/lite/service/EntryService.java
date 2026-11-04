@@ -98,6 +98,7 @@ public class EntryService {
         CreditCard card = null;
         Account account = null;
         String invoiceMonth = null;
+        boolean applied = true;
 
         if (dto.getCreditCardId() != null) {
             card = creditCardRepository.findByIdAndUser(dto.getCreditCardId(), user).orElse(null);
@@ -116,8 +117,11 @@ public class EntryService {
         } else if (dto.getAccountId() != null) {
             account = accountRepository.findByIdAndUser(dto.getAccountId(), user).orElse(null);
             if (account != null) {
-                applyBalanceChange(account, dto.getType(), dto.getAmount());
-                accountRepository.save(account);
+                applied = !isFuture(date);
+                if (applied) {
+                    applyBalanceChange(account, dto.getType(), dto.getAmount());
+                    accountRepository.save(account);
+                }
             }
         }
 
@@ -134,6 +138,7 @@ public class EntryService {
                 .creditCard(card)
                 .notes(dto.getNotes())
                 .invoiceMonth(invoiceMonth)
+                .applied(applied)
                 .build());
         if ("EXPENSE".equals(dto.getType())) {
             budgetService.adjustSpent(user, cat, YearMonth.from(date).toString(), dto.getAmount());
@@ -156,7 +161,7 @@ public class EntryService {
                     oldCard.setUsedAmount(oldCard.getUsedAmount().add(entry.getAmount()));
                 }
                 creditCardRepository.save(oldCard);
-            } else if (entry.getAccount() != null) {
+            } else if (entry.getAccount() != null && entry.getApplied()) {
                 applyBalanceChange(entry.getAccount(), reverseType(entry.getType()), entry.getAmount());
                 accountRepository.save(entry.getAccount());
             }
@@ -171,6 +176,7 @@ public class EntryService {
             CreditCard newCard = null;
             Account newAccount = null;
             String newInvoiceMonth = null;
+            boolean applied = true;
 
             if (dto.getCreditCardId() != null) {
                 newCard = creditCardRepository.findByIdAndUser(dto.getCreditCardId(), user).orElse(null);
@@ -188,8 +194,11 @@ public class EntryService {
             } else if (dto.getAccountId() != null) {
                 newAccount = accountRepository.findByIdAndUser(dto.getAccountId(), user).orElse(null);
                 if (newAccount != null) {
-                    applyBalanceChange(newAccount, dto.getType(), dto.getAmount());
-                    accountRepository.save(newAccount);
+                    applied = !isFuture(date);
+                    if (applied) {
+                        applyBalanceChange(newAccount, dto.getType(), dto.getAmount());
+                        accountRepository.save(newAccount);
+                    }
                 }
             }
 
@@ -202,6 +211,7 @@ public class EntryService {
             entry.setAccount(newAccount);
             entry.setCreditCard(newCard);
             entry.setInvoiceMonth(newInvoiceMonth);
+            entry.setApplied(applied);
             entryRepository.save(entry);
 
             if ("EXPENSE".equals(oldType) && oldDate != null) {
@@ -226,7 +236,7 @@ public class EntryService {
                     card.setUsedAmount(card.getUsedAmount().add(entry.getAmount()));
                 }
                 creditCardRepository.save(card);
-            } else if (entry.getAccount() != null) {
+            } else if (entry.getAccount() != null && entry.getApplied()) {
                 Account account = entry.getAccount();
                 applyBalanceChange(account, reverseType(entry.getType()), entry.getAmount());
                 accountRepository.save(account);
@@ -747,10 +757,13 @@ public class EntryService {
         Account to = accountRepository.findByIdAndUser(toAccountId, user)
                 .orElseThrow(() -> new IllegalArgumentException("Conta de destino não encontrada."));
 
-        from.setBalance(from.getBalance().subtract(amount));
-        to.setBalance(to.getBalance().add(amount));
-        accountRepository.save(from);
-        accountRepository.save(to);
+        boolean applied = !isFuture(date);
+        if (applied) {
+            from.setBalance(from.getBalance().subtract(amount));
+            to.setBalance(to.getBalance().add(amount));
+            accountRepository.save(from);
+            accountRepository.save(to);
+        }
 
         String cat = categoryService.resolveAndSave(user, "Transferência");
         boolean hasCustomDesc = description != null && !description.isBlank();
@@ -759,18 +772,39 @@ public class EntryService {
                 .user(user).mode("SIMPLE")
                 .description(hasCustomDesc ? description : "Transferência para " + to.getName())
                 .amount(amount).type("TRANSFER_OUT").category(cat)
-                .entryDate(date).account(from)
+                .entryDate(date).account(from).applied(applied)
                 .build());
 
         entryRepository.save(Entry.builder()
                 .user(user).mode("SIMPLE")
                 .description(hasCustomDesc ? description : "Transferência de " + from.getName())
                 .amount(amount).type("TRANSFER_IN").category(cat)
-                .entryDate(date).account(to)
+                .entryDate(date).account(to).applied(applied)
                 .build());
     }
 
+    // ── AGENDADAS (data futura) ───────────────────────────────────────────
+
+    /** Lança no saldo as movimentações agendadas cuja data já chegou. */
+    @Transactional
+    public int applyDueScheduledEntries() {
+        List<Entry> due = entryRepository.findAllPendingSimpleDue(LocalDate.now());
+        for (Entry e : due) {
+            if (e.getAccount() != null) {
+                applyBalanceChange(e.getAccount(), e.getType(), e.getAmount());
+                accountRepository.save(e.getAccount());
+            }
+            e.setApplied(true);
+            entryRepository.save(e);
+        }
+        return due.size();
+    }
+
     // ── Utilitários ───────────────────────────────────────────────────────
+
+    private boolean isFuture(LocalDate date) {
+        return date != null && date.isAfter(LocalDate.now());
+    }
 
     public boolean appliesThisMonth(Entry e, YearMonth month) {
         if ("MONTHLY".equals(e.getFrequency())) return true;

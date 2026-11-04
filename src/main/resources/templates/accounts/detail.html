@@ -69,7 +69,11 @@
                         <td class="text-muted small text-nowrap"
                             th:text="${#temporals.format(e.entryDate, 'dd/MM/yyyy')}"></td>
                         <td>
-                            <div th:text="${e.description}"></div>
+                            <div>
+                                <span th:text="${e.description}"></span>
+                                <span th:if="${!e.applied}" class="badge bg-info text-dark ms-1"
+                                      title="Entra no saldo na data da movimentação">Agendada</span>
+                            </div>
                             <small th:if="${e.notes != null and !#strings.isEmpty(e.notes)}"
                                    class="text-muted" th:text="${e.notes}"></small>
                         </td>

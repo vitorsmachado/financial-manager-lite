@@ -78,6 +78,11 @@ public class Entry extends BaseEntity {
     @Builder.Default
     private Boolean confirmed = false;
 
+    /** SIMPLE em conta: false enquanto a data for futura (ainda não alterou o saldo) */
+    @Column(nullable = false)
+    @Builder.Default
+    private Boolean applied = true;
+
     // ── Campos RECURRING ──────────────────────────────────────────────────
 
     /** MONTHLY | ANNUAL */

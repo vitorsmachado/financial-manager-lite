@@ -63,7 +63,7 @@ public class ProjectionService {
     public ProjectionData compute(User user, String month, int monthsBefore, int monthsAfter) {
         BigDecimal currentBalance    = accountRepository.sumBalanceByUser(user);
         List<Entry> recurring        = entryRepository.findRecurringActiveByUser(user);
-        List<Entry> futureSimple     = entryRepository.findFutureSimpleByUser(user, LocalDate.now());
+        List<Entry> futureSimple     = entryRepository.findPendingSimpleByUser(user);
 
         List<CreditCard> cardsWithBalance = creditCardRepository.findByUserAndActiveTrue(user);
         Map<CreditCard, LocalDate> cardDueDates = new LinkedHashMap<>();

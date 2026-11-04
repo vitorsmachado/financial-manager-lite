@@ -2,6 +2,8 @@ package com.financialmanager.lite.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,16 @@ public class RecurringSchedulerService {
         int count = entryService.applyDueRecurringEntries();
         if (count > 0) {
             log.info("Scheduler: {} recorrência(s) lançada(s) automaticamente.", count);
+        }
+    }
+
+    // Meia-noite: agendadas do dia entram no saldo assim que a data chega
+    @Scheduled(cron = "0 0 0 * * *")
+    @EventListener(ApplicationReadyEvent.class)
+    public void applyDueScheduled() {
+        int count = entryService.applyDueScheduledEntries();
+        if (count > 0) {
+            log.info("Scheduler: {} movimentação(ões) agendada(s) lançada(s) no saldo.", count);
         }
     }
 }

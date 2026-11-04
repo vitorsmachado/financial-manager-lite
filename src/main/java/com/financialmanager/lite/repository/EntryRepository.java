@@ -85,12 +85,18 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
                                     @Param("prefix") String prefix,
                                     @Param("since") LocalDate since);
 
-    @Query("SELECT e FROM Entry e LEFT JOIN FETCH e.account LEFT JOIN FETCH e.creditCard " +
+    @Query("SELECT e FROM Entry e LEFT JOIN FETCH e.account " +
            "WHERE e.user = :user " +
             "AND e.mode = 'SIMPLE' " +
-            "AND e.entryDate >= :from " +
+            "AND e.applied = false " +
             "ORDER BY e.entryDate ASC")
-    List<Entry> findFutureSimpleByUser(@Param("user") User user, @Param("from") LocalDate from);
+    List<Entry> findPendingSimpleByUser(@Param("user") User user);
+
+    @Query("SELECT e FROM Entry e LEFT JOIN FETCH e.account " +
+           "WHERE e.mode = 'SIMPLE' " +
+            "AND e.applied = false " +
+            "AND e.entryDate <= :today")
+    List<Entry> findAllPendingSimpleDue(@Param("today") LocalDate today);
 
     // ── RECURRING (recorrentes) ───────────────────────────────────────────
 
