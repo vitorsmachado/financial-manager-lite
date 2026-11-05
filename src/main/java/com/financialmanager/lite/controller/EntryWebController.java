@@ -89,6 +89,10 @@ public class EntryWebController {
                             .baseDate(baseDate)
                             .build());
                 }
+                if ("INCOME".equals(form.getType())) {
+                    ra.addFlashAttribute("success", "Receita parcelada registrada!");
+                    yield "redirect:/movimentacoes?tab=medevem";
+                }
                 ra.addFlashAttribute("success", "Parcelamento registrado!");
                 yield "redirect:/movimentacoes?tab=parcelas";
             }

@@ -1,5 +1,6 @@
 package com.financialmanager.lite.service;
 
+import com.financialmanager.lite.dto.InstallmentEntryDTO;
 import com.financialmanager.lite.dto.SimpleEntryDTO;
 import com.financialmanager.lite.model.Account;
 import com.financialmanager.lite.model.CreditCard;
@@ -388,6 +389,68 @@ class EntryServiceTest {
                     .type("EXPENSE").frequency(null).build();
 
             assertThat(entryService.appliesThisMonth(entry, YearMonth.now())).isFalse();
+        }
+    }
+
+    // =========================================================================
+    // direção dos parcelamentos
+    // =========================================================================
+
+    @Nested
+    @DisplayName("direção dos parcelamentos")
+    class InstallmentDirection {
+
+        private InstallmentEntryDTO.InstallmentEntryDTOBuilder dto(String type, String direction) {
+            return InstallmentEntryDTO.builder()
+                    .description("Parcelado").amount(new BigDecimal("300"))
+                    .type(type).category("Outros").direction(direction)
+                    .totalInstallments(3).dayOfMonth(10);
+        }
+
+        private Entry entry(String type, String direction) {
+            return Entry.builder()
+                    .user(user).mode("INSTALLMENT").type(type).direction(direction)
+                    .description("Parcelado").amount(new BigDecimal("300"))
+                    .totalInstallments(3).paidAmount(BigDecimal.ZERO).build();
+        }
+
+        @Test
+        @DisplayName("criar receita parcelada grava como RECEIVABLE, mesmo recebendo PAYABLE")
+        void createIncomeIsReceivable() {
+            Entry saved = entryService.createInstallment(user, dto("INCOME", "PAYABLE").build());
+
+            assertThat(saved.getType()).isEqualTo("INCOME");
+            assertThat(saved.getDirection()).isEqualTo("RECEIVABLE");
+        }
+
+        @Test
+        @DisplayName("criar despesa parcelada continua como PAYABLE")
+        void createExpenseStaysPayable() {
+            Entry saved = entryService.createInstallment(user, dto("EXPENSE", "PAYABLE").build());
+
+            assertThat(saved.getDirection()).isEqualTo("PAYABLE");
+        }
+
+        @Test
+        @DisplayName("editar de despesa para receita muda a direção para RECEIVABLE")
+        void editExpenseToIncomeBecomesReceivable() {
+            Entry entry = entry("EXPENSE", "PAYABLE");
+            when(entryRepository.findInstallmentByIdAndUser(20L, user)).thenReturn(Optional.of(entry));
+
+            entryService.updateInstallment(20L, user, dto("INCOME", null).build());
+
+            assertThat(entry.getDirection()).isEqualTo("RECEIVABLE");
+        }
+
+        @Test
+        @DisplayName("editar de receita para despesa muda a direção para PAYABLE")
+        void editIncomeToExpenseBecomesPayable() {
+            Entry entry = entry("INCOME", "RECEIVABLE");
+            when(entryRepository.findInstallmentByIdAndUser(21L, user)).thenReturn(Optional.of(entry));
+
+            entryService.updateInstallment(21L, user, dto("EXPENSE", null).build());
+
+            assertThat(entry.getDirection()).isEqualTo("PAYABLE");
         }
     }
 }

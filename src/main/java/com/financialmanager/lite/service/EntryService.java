@@ -433,7 +433,7 @@ public class EntryService {
     @Transactional
     public Entry createInstallment(User user, InstallmentEntryDTO dto) {
         String cat = categoryService.resolveAndSave(user, dto.getCategory());
-        String dir = dto.getDirection() != null ? dto.getDirection() : "STANDARD";
+        String dir = installmentDirection(dto.getType(), dto.getDirection());
         Account account = dto.getAccountId() != null
                 ? accountRepository.findByIdAndUser(dto.getAccountId(), user).orElse(null) : null;
         CreditCard card = dto.getCreditCardId() != null
@@ -594,6 +594,8 @@ public class EntryService {
                 oldCard.setUsedAmount(newUsed.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : newUsed);
                 creditCardRepository.save(oldCard);
             }
+
+            entry.setDirection(installmentDirection(dto.getType(), entry.getDirection()));
 
             String cat = categoryService.resolveAndSave(user, dto.getCategory());
             CreditCard newCard = dto.getCreditCardId() != null
@@ -801,6 +803,13 @@ public class EntryService {
     }
 
     // ── Utilitários ───────────────────────────────────────────────────────
+
+    /** Parcelamento de receita é sempre a receber; o de despesa nunca é a receber. */
+    private String installmentDirection(String type, String direction) {
+        if ("INCOME".equals(type)) return "RECEIVABLE";
+        if ("RECEIVABLE".equals(direction)) return "PAYABLE";
+        return direction != null ? direction : "STANDARD";
+    }
 
     private boolean isFuture(LocalDate date) {
         return date != null && date.isAfter(LocalDate.now());
