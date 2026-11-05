@@ -49,6 +49,16 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
             @Param("user") User user, @Param("type") String type,
             @Param("from") LocalDate from, @Param("to") LocalDate to);
 
+    /** Variação líquida no saldo das contas causada por movimentações efetivadas no período (from, to]. */
+    @Query("SELECT COALESCE(SUM(CASE WHEN e.type IN ('INCOME', 'TRANSFER_IN') THEN e.amount " +
+           "WHEN e.type IN ('EXPENSE', 'TRANSFER_OUT', 'CARD_PAYMENT') THEN -e.amount ELSE 0 END), 0) " +
+           "FROM Entry e " +
+           "WHERE e.user = :user AND e.mode = 'SIMPLE' AND e.applied = true " +
+           "AND e.account IS NOT NULL AND e.account.active = true " +
+           "AND e.entryDate > :from AND e.entryDate <= :to")
+    BigDecimal sumAccountNetChangeAfter(
+            @Param("user") User user, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
     @Query("SELECT e.category, COALESCE(SUM(e.amount), 0) FROM Entry e " +
            "WHERE e.user = :user " +
             "AND e.mode = 'SIMPLE' " +

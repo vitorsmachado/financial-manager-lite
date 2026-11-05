@@ -5,72 +5,174 @@ import com.financialmanager.lite.model.User;
 import com.financialmanager.lite.repository.AccountRepository;
 import com.financialmanager.lite.repository.CreditCardRepository;
 import com.financialmanager.lite.repository.EntryRepository;
+import com.financialmanager.lite.service.ProjectionService.CashFlowEvent;
+import com.financialmanager.lite.service.ProjectionService.DayFlow;
+import com.financialmanager.lite.service.ProjectionService.MonthProjection;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.Locale;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
 
+    private static final int MAX_MONTHS_AHEAD = 24;
+
     private final AccountRepository accountRepository;
     private final CreditCardRepository creditCardRepository;
     private final EntryRepository entryRepository;
+    private final ProjectionService projectionService;
 
+    /** Item previsto no mês da data escolhida. */
+    public record ExpectedItem(LocalDate date, String description, String type,
+                               BigDecimal amount, String originLabel, String badgeClass) {}
+
+    private record Forecast(List<ExpectedItem> items, BigDecimal opening, BigDecimal closing) {}
+
+    /**
+     * Retrato financeiro em uma data:
+     * passado mostra só o confirmado até a data, hoje mostra o confirmado e o esperado até o fim do mês,
+     * futuro mostra só a previsão.
+     */
     @Transactional(readOnly = true)
-    public Map<String, Object> getSummary(User user) {
-        YearMonth current = YearMonth.now();
-        LocalDate from = current.atDay(1);
-        LocalDate to   = current.atEndOfMonth();
+    public Map<String, Object> getSummary(User user, LocalDate requested) {
+        LocalDate today   = LocalDate.now();
+        LocalDate maxDate = YearMonth.from(today).plusMonths(MAX_MONTHS_AHEAD).atEndOfMonth();
+        LocalDate date    = (requested == null || requested.isAfter(maxDate)) ? today : requested;
+        YearMonth month   = YearMonth.from(date);
+        boolean past      = date.isBefore(today);
+        boolean future    = date.isAfter(today);
 
-        BigDecimal totalBalance  = accountRepository.sumBalanceByUser(user);
-        BigDecimal monthIncome   = entryRepository.sumSimpleByUserAndTypeAndDateRange(user, "INCOME",  from, to);
-        BigDecimal monthExpenses = entryRepository.sumSimpleByUserAndTypeAndDateRange(user, "EXPENSE", from, to);
-        BigDecimal totalDebt     = entryRepository.sumRemainingPayablesByUser(user);
-        BigDecimal totalReceivable = entryRepository.sumRemainingReceivablesByUser(user);
-
-        BigDecimal totalCardUsed = creditCardRepository.findByUserAndActiveTrue(user).stream()
-                .map(CreditCard::getUsedAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal effectiveBalance = totalBalance.subtract(totalCardUsed);
-
-        BigDecimal savings = monthIncome.subtract(monthExpenses);
-        double savingsRate = monthIncome.compareTo(BigDecimal.ZERO) > 0
-                ? savings.divide(monthIncome, 4, java.math.RoundingMode.HALF_EVEN)
-                         .multiply(BigDecimal.valueOf(100)).doubleValue()
-                : 0.0;
-
+        BigDecimal currentBalance = accountRepository.sumBalanceByUser(user);
+        LocalDate periodFrom = month.atDay(1);
+        BigDecimal balanceAtDate = currentBalance;
+        BigDecimal periodIncome;
+        BigDecimal periodExpenses;
         Map<String, BigDecimal> expenseByCategory = new LinkedHashMap<>();
-        for (Object[] row : entryRepository.sumExpensesByCategory(user, from, to)) {
-            expenseByCategory.put((String) row[0], (BigDecimal) row[1]);
+        List<ExpectedItem> untilItems = List.of();
+        List<ExpectedItem> expectedItems = List.of();
+        BigDecimal monthEndBalance = null;
+
+        if (future) {
+            Forecast forecast = loadForecast(user, month, today, currentBalance);
+            untilItems    = forecast.items().stream().filter(it -> !it.date().isAfter(date)).toList();
+            expectedItems = forecast.items().stream().filter(it -> it.date().isAfter(date)).toList();
+            periodIncome   = sumIncome(untilItems);
+            periodExpenses = sumExpenses(untilItems);
+            balanceAtDate  = forecast.opening().add(periodIncome).subtract(periodExpenses);
+            monthEndBalance = forecast.closing();
+            if (month.equals(YearMonth.from(today))) periodFrom = today;
+        } else {
+            periodIncome   = entryRepository.sumSimpleByUserAndTypeAndDateRange(user, "INCOME",  periodFrom, date);
+            periodExpenses = entryRepository.sumSimpleByUserAndTypeAndDateRange(user, "EXPENSE", periodFrom, date);
+            for (Object[] row : entryRepository.sumExpensesByCategory(user, periodFrom, date)) {
+                expenseByCategory.put((String) row[0], (BigDecimal) row[1]);
+            }
+            if (past) {
+                balanceAtDate = currentBalance.subtract(entryRepository.sumAccountNetChangeAfter(user, date, today));
+            } else {
+                Forecast forecast = loadForecast(user, month, today, currentBalance);
+                expectedItems   = forecast.items();
+                monthEndBalance = forecast.closing();
+            }
         }
 
-        long activeDebts      = entryRepository.findActivePayablesByUser(user).size();
-        long activeReceivables = entryRepository.findActiveReceivablesByUser(user).size();
-        long activeCards      = creditCardRepository.findByUserAndActiveTrue(user).size();
+        BigDecimal periodNet = periodIncome.subtract(periodExpenses);
+        double savingsRate = periodIncome.compareTo(BigDecimal.ZERO) > 0
+                ? periodNet.divide(periodIncome, 4, RoundingMode.HALF_EVEN).multiply(BigDecimal.valueOf(100)).doubleValue()
+                : 0.0;
+
+        // ── Visão geral (valores de hoje, independe da data) ────────────────
+        List<CreditCard> cards = creditCardRepository.findByUserAndActiveTrue(user);
+        BigDecimal totalCardUsed = cards.stream()
+                .map(CreditCard::getUsedAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        LocalDate nextMonth = date.plusMonths(1);
 
         Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("totalBalance",      totalBalance);
-        summary.put("totalCardUsed",     totalCardUsed);
-        summary.put("effectiveBalance",  effectiveBalance);
-        summary.put("totalReceivable",   totalReceivable);
-        summary.put("monthIncome",       monthIncome);
-        summary.put("monthExpenses",     monthExpenses);
-        summary.put("savings",           savings);
-        summary.put("savingsRate",       String.format(Locale.US, "%.1f%%", savingsRate));
-        summary.put("totalDebt",         totalDebt);
-        summary.put("activeDebts",       activeDebts);
-        summary.put("activeReceivables", activeReceivables);
-        summary.put("activeCards",       activeCards);
+        summary.put("date",              date);
+        summary.put("today",             today);
+        summary.put("isPast",            past);
+        summary.put("isToday",           date.equals(today));
+        summary.put("isFuture",          future);
+        summary.put("maxDate",           maxDate);
+        summary.put("prevMonth",         date.minusMonths(1));
+        summary.put("nextMonth",         nextMonth.isAfter(maxDate) ? null : nextMonth);
+        summary.put("monthEnd",          month.atEndOfMonth());
+        summary.put("periodFrom",        periodFrom);
+        summary.put("balanceAtDate",     balanceAtDate);
+        summary.put("periodIncome",      periodIncome);
+        summary.put("periodExpenses",    periodExpenses);
+        summary.put("periodNet",         periodNet);
+        summary.put("savingsRate",       savingsRate);
         summary.put("expenseByCategory", expenseByCategory);
-        summary.put("period",            current.toString());
+        summary.put("untilItems",        untilItems);
+        summary.put("expectedItems",     expectedItems);
+        summary.put("expectedIncome",    sumIncome(expectedItems));
+        summary.put("expectedExpenses",  sumExpenses(expectedItems));
+        summary.put("monthEndBalance",   monthEndBalance);
+        summary.put("totalCardUsed",     totalCardUsed);
+        summary.put("activeCards",       (long) cards.size());
+        summary.put("totalDebt",         entryRepository.sumRemainingPayablesByUser(user));
+        summary.put("activeDebts",       (long) entryRepository.findActivePayablesByUser(user).size());
+        summary.put("totalReceivable",   entryRepository.sumRemainingReceivablesByUser(user));
+        summary.put("activeReceivables", (long) entryRepository.findActiveReceivablesByUser(user).size());
         return summary;
+    }
+
+    /** Previsão do mês vinda do fluxo de caixa: mês atual a partir de hoje, meses futuros inteiros. */
+    private Forecast loadForecast(User user, YearMonth month, LocalDate today, BigDecimal currentBalance) {
+        int monthsAhead = (int) ChronoUnit.MONTHS.between(YearMonth.from(today), month);
+        var projection = projectionService.compute(user, null, 0, Math.max(monthsAhead, 1));
+        MonthProjection monthProjection = projection.projections().get(monthsAhead);
+
+        List<ExpectedItem> items = new ArrayList<>();
+        if (monthsAhead > 0) {
+            for (CashFlowEvent ev : monthProjection.events()) {
+                LocalDate day = month.atDay(Math.min(ev.day(), month.lengthOfMonth()));
+                items.add(toItem(day, ev));
+            }
+            return new Forecast(items, monthProjection.openingBalance(), monthProjection.closingBalance());
+        }
+
+        List<DayFlow> flow = projection.currentMonthFlow();
+        BigDecimal flowEnd = flow.isEmpty() ? currentBalance : flow.get(flow.size() - 1).closingBalance();
+        BigDecimal overdueCardBills = flowEnd.subtract(monthProjection.closingBalance()).max(BigDecimal.ZERO);
+        if (overdueCardBills.compareTo(BigDecimal.ZERO) > 0) {
+            items.add(new ExpectedItem(today, "Faturas vencidas em aberto", "EXPENSE",
+                    overdueCardBills, "Fatura", "bg-danger"));
+        }
+        for (DayFlow df : flow) {
+            if (df.isPast()) continue;
+            for (CashFlowEvent ev : df.events()) {
+                items.add(toItem(df.date(), ev));
+            }
+        }
+        return new Forecast(items, currentBalance, monthProjection.closingBalance());
+    }
+
+    private ExpectedItem toItem(LocalDate date, CashFlowEvent ev) {
+        return new ExpectedItem(date, ev.description(), ev.type(), ev.amount(), ev.originLabel(), ev.badgeClass());
+    }
+
+    private BigDecimal sumIncome(List<ExpectedItem> items) {
+        return items.stream().filter(it -> "INCOME".equals(it.type()))
+                .map(ExpectedItem::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal sumExpenses(List<ExpectedItem> items) {
+        return items.stream().filter(it -> !"INCOME".equals(it.type()))
+                .map(ExpectedItem::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

@@ -4,12 +4,16 @@ import com.financialmanager.lite.model.User;
 import com.financialmanager.lite.service.DashboardService;
 import com.financialmanager.lite.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import java.time.LocalDate;
 
 @Controller
 @RequestMapping("/dashboard")
@@ -20,9 +24,12 @@ public class DashboardController {
     private final UserService userService;
 
     @GetMapping
-    public String dashboard(@AuthenticationPrincipal UserDetails principal, Model model) {
+    public String dashboard(@AuthenticationPrincipal UserDetails principal,
+                            @RequestParam(required = false)
+                            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                            Model model) {
         User user = userService.findByEmail(principal.getUsername());
-        model.addAttribute("summary", dashboardService.getSummary(user));
+        model.addAttribute("summary", dashboardService.getSummary(user, date));
         model.addAttribute("userName", user.getName());
         return "dashboard";
     }

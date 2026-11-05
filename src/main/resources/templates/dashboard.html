@@ -8,84 +8,197 @@
 <div th:replace="~{fragments/layout :: alerts}"></div>
 
 <div class="container-fluid py-4">
-    <div class="d-flex align-items-center mb-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
         <div>
             <h4 class="mb-0 fw-bold">Dashboard</h4>
-            <small class="text-muted" th:text="'Período: ' + ${summary.period}"></small>
+            <small class="text-muted"
+                   th:text="${summary.isToday} ? 'Retrato de hoje, ' + ${#temporals.format(summary.date,'dd/MM/yyyy')}
+                                               : 'Retrato em ' + ${#temporals.format(summary.date,'dd/MM/yyyy')}"></small>
+        </div>
+        <form th:action="@{/dashboard}" method="get" class="d-flex align-items-center gap-2">
+            <a th:href="@{/dashboard(date=${summary.prevMonth})}" class="btn btn-sm btn-outline-secondary"
+               title="Mês anterior"><i class="bi bi-chevron-left"></i></a>
+            <input type="date" name="date" class="form-control form-control-sm"
+                   th:value="${summary.date}" th:max="${summary.maxDate}"
+                   onchange="this.form.submit()">
+            <a th:if="${summary.nextMonth != null}" th:href="@{/dashboard(date=${summary.nextMonth})}"
+               class="btn btn-sm btn-outline-secondary" title="Próximo mês"><i class="bi bi-chevron-right"></i></a>
+            <a th:unless="${summary.isToday}" th:href="@{/dashboard}" class="btn btn-sm btn-outline-primary">Hoje</a>
+        </form>
+    </div>
+
+    <!-- Confirmado (passado e hoje) ou previsto (futuro) até a data -->
+    <h6 class="text-uppercase text-muted small fw-semibold mb-2">
+        <i class="bi me-1" th:classappend="${summary.isFuture} ? 'bi-hourglass-split' : 'bi-check2-circle'"></i>
+        <span th:text="${summary.isFuture} ? 'Previsto' : 'Confirmado'"></span>
+        <span class="fw-normal text-lowercase"
+              th:text="'(' + ${#temporals.format(summary.periodFrom,'dd/MM')} + ' a ' + ${#temporals.format(summary.date,'dd/MM')} + ')'"></span>
+    </h6>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-3 border-primary">
+                <div class="card-body">
+                    <div class="text-muted small mb-1"
+                         th:text="${summary.isFuture} ? 'Saldo previsto em ' + ${#temporals.format(summary.date,'dd/MM')}
+                                                      : 'Saldo nas contas em ' + ${#temporals.format(summary.date,'dd/MM')}"></div>
+                    <div class="fs-5 fw-bold"
+                         th:classappend="${summary.balanceAtDate >= 0} ? 'text-primary' : 'text-danger'"
+                         th:text="${#numbers.formatCurrency(summary.balanceAtDate)}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small mb-1">Entradas</div>
+                    <div class="fs-5 fw-bold text-success"
+                         th:text="${#numbers.formatCurrency(summary.periodIncome)}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small mb-1">Saídas</div>
+                    <div class="fs-5 fw-bold text-danger"
+                         th:text="${#numbers.formatCurrency(summary.periodExpenses)}"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small mb-1">Resultado</div>
+                    <div class="fs-5 fw-bold"
+                         th:classappend="${summary.periodNet >= 0} ? 'text-success' : 'text-danger'"
+                         th:text="${#numbers.formatCurrency(summary.periodNet)}"></div>
+                    <div class="text-muted" style="font-size:0.7rem;"
+                         th:text="${#numbers.formatDecimal(summary.savingsRate, 1, 1, 'COMMA')} + '% das entradas'"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12" th:if="${summary.isFuture}">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+                    <span><i class="bi bi-list-ul me-2"></i>Previstos até a data</span>
+                    <a th:href="@{/projection}" class="small text-decoration-none">Fluxo de caixa →</a>
+                </div>
+                <div class="table-responsive" style="max-height: 320px;">
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                        <tr th:each="it : ${summary.untilItems}">
+                            <td class="small text-muted text-nowrap" th:text="${#temporals.format(it.date,'dd/MM')}"></td>
+                            <td>
+                                <span th:text="${it.description}"></span>
+                                <span class="badge ms-1" th:classappend="${it.badgeClass}" th:text="${it.originLabel}"></span>
+                            </td>
+                            <td class="text-end fw-semibold text-nowrap"
+                                th:classappend="${it.type == 'INCOME'} ? 'text-success' : 'text-danger'"
+                                th:text="${(it.type == 'INCOME' ? '+' : '-') + #numbers.formatCurrency(it.amount)}"></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(summary.untilItems)}">
+                            <td colspan="3" class="text-center text-muted py-3">Nada previsto até esta data.</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- KPI Cards -->
+    <!-- Esperado depois da data (não aparece no passado) -->
+    <th:block th:unless="${summary.isPast or (summary.isFuture and summary.date == summary.monthEnd)}">
+    <h6 class="text-uppercase text-muted small fw-semibold mb-2">
+        <i class="bi bi-hourglass-split me-1"></i>
+        <span th:text="${summary.isToday} ? 'Esperado até o fim do mês'
+                                           : 'Esperado de ' + ${#temporals.format(summary.date.plusDays(1),'dd/MM')} + ' até o fim do mês'"></span>
+        <span class="fw-normal text-lowercase">(pode não acontecer)</span>
+    </h6>
     <div class="row g-3 mb-4">
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Saldo nas Contas</div>
-                    <div class="fs-5 fw-bold text-primary"
-                         th:text="${#numbers.formatCurrency(summary.totalBalance)}"></div>
+        <div class="col-md-4">
+            <div class="row g-3">
+                <div class="col-6 col-md-12">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="text-muted small mb-1">A entrar</div>
+                            <div class="fs-5 fw-bold text-success"
+                                 th:text="${'+' + #numbers.formatCurrency(summary.expectedIncome)}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-12">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-body">
+                            <div class="text-muted small mb-1">A sair</div>
+                            <div class="fs-5 fw-bold text-danger"
+                                 th:text="${'-' + #numbers.formatCurrency(summary.expectedExpenses)}"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <div class="card border-0 shadow-sm h-100 border-start border-3 border-info">
+                        <div class="card-body">
+                            <div class="text-muted small mb-1"
+                                 th:text="'Saldo previsto em ' + ${#temporals.format(summary.monthEnd,'dd/MM')}"></div>
+                            <div class="fs-5 fw-bold"
+                                 th:classappend="${summary.monthEndBalance >= 0} ? 'text-success' : 'text-danger'"
+                                 th:text="${#numbers.formatCurrency(summary.monthEndBalance)}"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-4 col-xl-2">
+        <div class="col-md-8">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white fw-semibold d-flex justify-content-between">
+                    <span><i class="bi bi-list-ul me-2"></i>Previstos</span>
+                    <a th:href="@{/projection}" class="small text-decoration-none">Fluxo de caixa →</a>
+                </div>
+                <div class="table-responsive" style="max-height: 320px;">
+                    <table class="table table-sm align-middle mb-0">
+                        <tbody>
+                        <tr th:each="it : ${summary.expectedItems}">
+                            <td class="small text-muted text-nowrap" th:text="${#temporals.format(it.date,'dd/MM')}"></td>
+                            <td>
+                                <span th:text="${it.description}"></span>
+                                <span class="badge ms-1" th:classappend="${it.badgeClass}" th:text="${it.originLabel}"></span>
+                            </td>
+                            <td class="text-end fw-semibold text-nowrap"
+                                th:classappend="${it.type == 'INCOME'} ? 'text-success' : 'text-danger'"
+                                th:text="${(it.type == 'INCOME' ? '+' : '-') + #numbers.formatCurrency(it.amount)}"></td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(summary.expectedItems)}">
+                            <td colspan="3" class="text-center text-muted py-3">Nada previsto até o fim do mês.</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    </th:block>
+
+    <!-- Visão geral -->
+    <h6 class="text-uppercase text-muted small fw-semibold mb-2">
+        <i class="bi bi-grid me-1"></i>Visão geral
+        <span class="fw-normal text-lowercase">(valores de hoje)</span>
+    </h6>
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
-                    <div class="text-muted small mb-1">Faturas Pendentes</div>
+                    <div class="text-muted small mb-1">Faturas em aberto</div>
                     <div class="fs-5 fw-bold text-danger"
-                         th:text="${'-' + #numbers.formatCurrency(summary.totalCardUsed)}"></div>
+                         th:text="${#numbers.formatCurrency(summary.totalCardUsed)}"></div>
+                    <div class="text-muted" style="font-size:0.7rem;"
+                         th:text="${summary.activeCards} + ' cartão(ões)'"></div>
                 </div>
             </div>
         </div>
-        <div class="col-12 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100 border-start border-3 border-primary">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Saldo Efetivo</div>
-                    <div class="fs-5 fw-bold"
-                         th:classappend="${summary.effectiveBalance >= 0} ? 'text-success' : 'text-danger'"
-                         th:text="${#numbers.formatCurrency(summary.effectiveBalance)}"></div>
-                    <div class="text-muted" style="font-size:0.7rem;">contas − faturas</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4 col-xl-2">
+        <div class="col-6 col-md-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
-                    <div class="text-muted small mb-1">Receita do Mês</div>
-                    <div class="fs-5 fw-bold text-success"
-                         th:text="${#numbers.formatCurrency(summary.monthIncome)}"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Despesas do Mês</div>
-                    <div class="fs-5 fw-bold text-danger"
-                         th:text="${#numbers.formatCurrency(summary.monthExpenses)}"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Poupança</div>
-                    <div class="fs-5 fw-bold"
-                         th:classappend="${summary.savings >= 0} ? 'text-success' : 'text-danger'"
-                         th:text="${#numbers.formatCurrency(summary.savings)}"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Taxa de Poupança</div>
-                    <div class="fs-5 fw-bold text-info" th:text="${summary.savingsRate}"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4 col-xl-2">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small mb-1">Total em Dívidas</div>
+                    <div class="text-muted small mb-1">Total em dívidas</div>
                     <div class="fs-5 fw-bold text-warning"
                          th:text="${#numbers.formatCurrency(summary.totalDebt)}"></div>
                     <div class="text-muted" style="font-size:0.7rem;"
@@ -93,25 +206,26 @@
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-4 col-xl-2">
+        <div class="col-12 col-md-4">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body">
-                    <div class="text-muted small mb-1">A Receber</div>
+                    <div class="text-muted small mb-1">Total a receber</div>
                     <div class="fs-5 fw-bold text-success"
                          th:text="${#numbers.formatCurrency(summary.totalReceivable)}"></div>
                     <div class="text-muted" style="font-size:0.7rem;"
-                         th:text="${summary.activeReceivables} + ' parcela(s)'"></div>
+                         th:text="${summary.activeReceivables} + ' ativo(s)'"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Chart -->
     <div class="row g-3">
-        <div class="col-md-6">
+        <div class="col-md-6" th:unless="${summary.isFuture}">
             <div class="card border-0 shadow-sm">
                 <div class="card-header bg-white fw-semibold">
                     <i class="bi bi-pie-chart me-2"></i>Despesas por Categoria
+                    <span class="small text-muted fw-normal"
+                          th:text="'(' + ${#temporals.format(summary.periodFrom,'dd/MM')} + ' a ' + ${#temporals.format(summary.date,'dd/MM')} + ')'"></span>
                 </div>
                 <div class="card-body">
                     <canvas id="expenseChart" height="260"></canvas>
@@ -149,8 +263,9 @@
 <div th:replace="~{fragments/layout :: scripts}"></div>
 <script th:inline="javascript">
     const expenseData = /*[[${summary.expenseByCategory}]]*/ {};
-    if (Object.keys(expenseData).length > 0) {
-        new Chart(document.getElementById('expenseChart'), {
+    const expenseCanvas = document.getElementById('expenseChart');
+    if (expenseCanvas && Object.keys(expenseData).length > 0) {
+        new Chart(expenseCanvas, {
             type: 'doughnut',
             data: {
                 labels: Object.keys(expenseData),
@@ -167,9 +282,9 @@
                 plugins: { legend: { position: 'bottom' } }
             }
         });
-    } else {
-        document.getElementById('expenseChart').parentElement.innerHTML =
-            '<p class="text-center text-muted mt-4">Nenhuma despesa registrada neste mês.</p>';
+    } else if (expenseCanvas) {
+        expenseCanvas.parentElement.innerHTML =
+            '<p class="text-center text-muted mt-4">Nenhuma despesa registrada no período.</p>';
     }
 </script>
 </body>
