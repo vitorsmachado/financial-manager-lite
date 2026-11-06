@@ -98,7 +98,7 @@ public class EntryService {
         CreditCard card = null;
         Account account = null;
         String invoiceMonth = null;
-        boolean applied = true;
+        boolean applied = dto.getCreditCardId() != null || !isFuture(date);
 
         if (dto.getCreditCardId() != null) {
             card = creditCardRepository.findByIdAndUser(dto.getCreditCardId(), user).orElse(null);
@@ -116,12 +116,9 @@ public class EntryService {
             }
         } else if (dto.getAccountId() != null) {
             account = accountRepository.findByIdAndUser(dto.getAccountId(), user).orElse(null);
-            if (account != null) {
-                applied = !isFuture(date);
-                if (applied) {
-                    applyBalanceChange(account, dto.getType(), dto.getAmount());
-                    accountRepository.save(account);
-                }
+            if (account != null && applied) {
+                applyBalanceChange(account, dto.getType(), dto.getAmount());
+                accountRepository.save(account);
             }
         }
 
@@ -176,7 +173,7 @@ public class EntryService {
             CreditCard newCard = null;
             Account newAccount = null;
             String newInvoiceMonth = null;
-            boolean applied = true;
+            boolean applied = dto.getCreditCardId() != null || !isFuture(date);
 
             if (dto.getCreditCardId() != null) {
                 newCard = creditCardRepository.findByIdAndUser(dto.getCreditCardId(), user).orElse(null);
@@ -193,12 +190,9 @@ public class EntryService {
                 }
             } else if (dto.getAccountId() != null) {
                 newAccount = accountRepository.findByIdAndUser(dto.getAccountId(), user).orElse(null);
-                if (newAccount != null) {
-                    applied = !isFuture(date);
-                    if (applied) {
-                        applyBalanceChange(newAccount, dto.getType(), dto.getAmount());
-                        accountRepository.save(newAccount);
-                    }
+                if (newAccount != null && applied) {
+                    applyBalanceChange(newAccount, dto.getType(), dto.getAmount());
+                    accountRepository.save(newAccount);
                 }
             }
 

@@ -453,4 +453,62 @@ class EntryServiceTest {
             assertThat(entry.getDirection()).isEqualTo("PAYABLE");
         }
     }
+
+    // =========================================================================
+    // movimentações com data futura
+    // =========================================================================
+
+    @Nested
+    @DisplayName("movimentações com data futura")
+    class ScheduledEntries {
+
+        private SimpleEntryDTO.SimpleEntryDTOBuilder future() {
+            return SimpleEntryDTO.builder().description("Futura").amount(new BigDecimal("100"))
+                    .type("INCOME").category("Outros").entryDate(LocalDate.now().plusDays(10));
+        }
+
+        @Test
+        @DisplayName("sem destino fica agendada")
+        void withoutDestinationIsScheduled() {
+            Entry saved = entryService.createSimple(user, future().build());
+
+            assertThat(saved.getApplied()).isFalse();
+        }
+
+        @Test
+        @DisplayName("em conta fica agendada e não altera o saldo")
+        void withAccountDoesNotChangeBalance() {
+            Account acc = accountWithBalance(new BigDecimal("1000"));
+            when(accountRepository.findByIdAndUser(1L, user)).thenReturn(Optional.of(acc));
+
+            Entry saved = entryService.createSimple(user, future().accountId(1L).build());
+
+            assertThat(saved.getApplied()).isFalse();
+            assertThat(acc.getBalance()).isEqualByComparingTo("1000");
+        }
+
+        @Test
+        @DisplayName("no cartão não fica agendada, porque entra na fatura")
+        void withCardIsNotScheduled() {
+            when(creditCardRepository.findByIdAndUser(2L, user))
+                    .thenReturn(Optional.of(cardWithUsedAmount(new BigDecimal("500"))));
+
+            Entry saved = entryService.createSimple(user, future().creditCardId(2L).build());
+
+            assertThat(saved.getApplied()).isTrue();
+        }
+
+        @Test
+        @DisplayName("com a data de hoje em conta altera o saldo na hora")
+        void todayChangesBalance() {
+            Account acc = accountWithBalance(new BigDecimal("1000"));
+            when(accountRepository.findByIdAndUser(1L, user)).thenReturn(Optional.of(acc));
+
+            Entry saved = entryService.createSimple(user,
+                    future().entryDate(LocalDate.now()).accountId(1L).build());
+
+            assertThat(saved.getApplied()).isTrue();
+            assertThat(acc.getBalance()).isEqualByComparingTo("1100");
+        }
+    }
 }

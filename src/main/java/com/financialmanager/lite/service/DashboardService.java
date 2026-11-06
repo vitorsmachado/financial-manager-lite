@@ -1,6 +1,7 @@
 package com.financialmanager.lite.service;
 
 import com.financialmanager.lite.model.CreditCard;
+import com.financialmanager.lite.model.Entry;
 import com.financialmanager.lite.model.User;
 import com.financialmanager.lite.repository.AccountRepository;
 import com.financialmanager.lite.repository.CreditCardRepository;
@@ -98,6 +99,12 @@ public class DashboardService {
                 .map(CreditCard::getUsedAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // Totais têm fim: parcelamentos + agendadas. Recorrentes não têm fim e aparecem como valor por mês.
+        List<Entry> scheduled = entryRepository.findPendingSimpleByUser(user);
+        List<Entry> monthlyRecurring = entryRepository.findRecurringActiveByUser(user).stream()
+                .filter(e -> "MONTHLY".equals(e.getFrequency()))
+                .toList();
+
         LocalDate nextMonth = date.plusMonths(1);
 
         Map<String, Object> summary = new LinkedHashMap<>();
@@ -124,10 +131,14 @@ public class DashboardService {
         summary.put("monthEndBalance",   monthEndBalance);
         summary.put("totalCardUsed",     totalCardUsed);
         summary.put("activeCards",       (long) cards.size());
-        summary.put("totalDebt",         entryRepository.sumRemainingPayablesByUser(user));
+        summary.put("totalDebt",         entryRepository.sumRemainingPayablesByUser(user).add(sumByType(scheduled, "EXPENSE")));
         summary.put("activeDebts",       (long) entryRepository.findActivePayablesByUser(user).size());
-        summary.put("totalReceivable",   entryRepository.sumRemainingReceivablesByUser(user));
+        summary.put("totalReceivable",   entryRepository.sumRemainingReceivablesByUser(user).add(sumByType(scheduled, "INCOME")));
         summary.put("activeReceivables", (long) entryRepository.findActiveReceivablesByUser(user).size());
+        summary.put("scheduledExpenses", countByType(scheduled, "EXPENSE"));
+        summary.put("scheduledIncomes",  countByType(scheduled, "INCOME"));
+        summary.put("monthlyRecurringExpense", sumByType(monthlyRecurring, "EXPENSE"));
+        summary.put("monthlyRecurringIncome",  sumByType(monthlyRecurring, "INCOME"));
         return summary;
     }
 
@@ -160,6 +171,15 @@ public class DashboardService {
             }
         }
         return new Forecast(items, currentBalance, monthProjection.closingBalance());
+    }
+
+    private BigDecimal sumByType(List<Entry> entries, String type) {
+        return entries.stream().filter(e -> type.equals(e.getType()))
+                .map(Entry::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private long countByType(List<Entry> entries, String type) {
+        return entries.stream().filter(e -> type.equals(e.getType())).count();
     }
 
     private ExpectedItem toItem(LocalDate date, CashFlowEvent ev) {

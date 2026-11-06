@@ -202,7 +202,9 @@
                     <div class="fs-5 fw-bold text-warning"
                          th:text="${#numbers.formatCurrency(summary.totalDebt)}"></div>
                     <div class="text-muted" style="font-size:0.7rem;"
-                         th:text="${summary.activeDebts} + ' ativa(s)'"></div>
+                         th:text="${summary.activeDebts} + ' ativa(s) · ' + ${summary.scheduledExpenses} + ' agendada(s)'"></div>
+                    <div th:if="${summary.monthlyRecurringExpense > 0}" class="text-muted mt-1" style="font-size:0.875rem;"
+                         th:text="'+ ' + ${#numbers.formatCurrency(summary.monthlyRecurringExpense)} + '/mês em recorrentes'"></div>
                 </div>
             </div>
         </div>
@@ -213,7 +215,9 @@
                     <div class="fs-5 fw-bold text-success"
                          th:text="${#numbers.formatCurrency(summary.totalReceivable)}"></div>
                     <div class="text-muted" style="font-size:0.7rem;"
-                         th:text="${summary.activeReceivables} + ' ativo(s)'"></div>
+                         th:text="${summary.activeReceivables} + ' parcelamento(s) · ' + ${summary.scheduledIncomes} + ' agendada(s)'"></div>
+                    <div th:if="${summary.monthlyRecurringIncome > 0}" class="text-muted mt-1" style="font-size:0.875rem;"
+                         th:text="'+ ' + ${#numbers.formatCurrency(summary.monthlyRecurringIncome)} + '/mês em recorrentes'"></div>
                 </div>
             </div>
         </div>

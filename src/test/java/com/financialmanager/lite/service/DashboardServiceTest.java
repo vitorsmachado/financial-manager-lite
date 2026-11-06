@@ -352,4 +352,55 @@ class DashboardServiceTest {
             assertThat(summary.get("nextMonth")).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("totais de dívidas e a receber")
+    class Totals {
+
+        private Entry scheduled(String type, String amount) {
+            return Entry.builder().user(user).mode("SIMPLE").type(type).description("x")
+                    .amount(new BigDecimal(amount)).applied(false).build();
+        }
+
+        private Entry recurring(String frequency, String type, String amount) {
+            return Entry.builder().user(user).mode("RECURRING").type(type).description("x")
+                    .frequency(frequency).amount(new BigDecimal(amount)).build();
+        }
+
+        @Test
+        @DisplayName("somam parcelamentos com agendadas; transferência agendada não entra")
+        void totalsIncludeScheduledEntries() {
+            stubAllZero();
+            stubCurrentMonth(List.of(), "0");
+            when(entryRepository.sumRemainingPayablesByUser(user)).thenReturn(new BigDecimal("300.00"));
+            when(entryRepository.sumRemainingReceivablesByUser(user)).thenReturn(new BigDecimal("150.00"));
+            when(entryRepository.findPendingSimpleByUser(user)).thenReturn(List.of(
+                    scheduled("EXPENSE", "40.00"), scheduled("INCOME", "60.00"), scheduled("TRANSFER_OUT", "999.00")));
+
+            Map<String, Object> summary = dashboardService.getSummary(user, null);
+
+            assertThat((BigDecimal) summary.get("totalDebt")).isEqualByComparingTo("340.00");
+            assertThat((BigDecimal) summary.get("totalReceivable")).isEqualByComparingTo("210.00");
+            assertThat(summary.get("scheduledExpenses")).isEqualTo(1L);
+            assertThat(summary.get("scheduledIncomes")).isEqualTo(1L);
+        }
+
+        @Test
+        @DisplayName("recorrentes ficam fora dos totais e só as mensais entram no valor por mês")
+        void recurringIsMonthlyAndOutOfTotals() {
+            stubAllZero();
+            stubCurrentMonth(List.of(), "0");
+            when(entryRepository.findRecurringActiveByUser(user)).thenReturn(List.of(
+                    recurring("MONTHLY", "EXPENSE", "800.00"),
+                    recurring("ANNUAL", "EXPENSE", "1200.00"),
+                    recurring("MONTHLY", "INCOME", "5500.00")));
+
+            Map<String, Object> summary = dashboardService.getSummary(user, null);
+
+            assertThat((BigDecimal) summary.get("monthlyRecurringExpense")).isEqualByComparingTo("800.00");
+            assertThat((BigDecimal) summary.get("monthlyRecurringIncome")).isEqualByComparingTo("5500.00");
+            assertThat((BigDecimal) summary.get("totalDebt")).isEqualByComparingTo("0");
+            assertThat((BigDecimal) summary.get("totalReceivable")).isEqualByComparingTo("0");
+        }
+    }
 }
