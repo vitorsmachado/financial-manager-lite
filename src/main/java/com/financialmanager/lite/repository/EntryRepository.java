@@ -102,6 +102,12 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
             "ORDER BY e.entryDate ASC")
     List<Entry> findPendingSimpleByUser(@Param("user") User user);
 
+    @Query("SELECT e FROM Entry e JOIN FETCH e.creditCard " +
+           "WHERE e.user = :user " +
+            "AND e.mode = 'SIMPLE' " +
+            "AND e.type IN ('EXPENSE', 'INCOME')")
+    List<Entry> findSimpleOnCardsByUser(@Param("user") User user);
+
     @Query("SELECT e FROM Entry e LEFT JOIN FETCH e.account " +
            "WHERE e.mode = 'SIMPLE' " +
             "AND e.applied = false " +

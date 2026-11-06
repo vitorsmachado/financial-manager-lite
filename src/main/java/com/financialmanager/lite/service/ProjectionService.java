@@ -75,6 +75,14 @@ public class ProjectionService {
         LocalDate today        = LocalDate.now();
         LocalDate endOfMonth   = currentMonth.atEndOfMonth();
 
+        Map<Long, List<Entry>> cardEntries = entryRepository.findSimpleOnCardsByUser(user).stream()
+                .collect(java.util.stream.Collectors.groupingBy(e -> e.getCreditCard().getId()));
+        Map<Long, Map<YearMonth, BigDecimal>> cardBillsByMonth = new HashMap<>();
+        for (CreditCard card : cardsWithBalance) {
+            cardBillsByMonth.put(card.getId(),
+                    allocateCardBills(card, cardEntries.getOrDefault(card.getId(), List.of()), today));
+        }
+
         List<Entry> recurringForNow = recurring.stream()
                 .filter(e -> entryService.appliesThisMonth(e, currentMonth))
                 .filter(e -> !currentMonth.toString().equals(e.getLastAppliedMonth()))
@@ -109,7 +117,7 @@ public class ProjectionService {
         List<DayFlow> currentMonthFlow = buildCurrentMonthDailyFlow(
                 currentBalance, today, currentMonth,
                 recurringForNow, installmentsForCurrentFlow,
-                cardsWithBalance, cardDueDates, simpleForNow);
+                cardsWithBalance, cardDueDates, cardBillsByMonth, simpleForNow);
 
         // ── Current month projection ─────────────────────────────────────────
         BigDecimal curRecIncome  = BigDecimal.ZERO;
@@ -135,8 +143,9 @@ public class ProjectionService {
         for (CreditCard card : cardsWithBalance) {
             LocalDate due = cardDueDates.get(card);
             if (due != null && YearMonth.from(due).equals(currentMonth)) {
-                curCardBills = curCardBills.add(card.getUsedAmount());
-                if (due.isBefore(today)) overdueCardBills = overdueCardBills.add(card.getUsedAmount());
+                BigDecimal bill = cardBillsByMonth.get(card.getId()).getOrDefault(currentMonth, BigDecimal.ZERO);
+                curCardBills = curCardBills.add(bill);
+                if (due.isBefore(today)) overdueCardBills = overdueCardBills.add(bill);
             }
         }
         BigDecimal curSimpleIncome  = BigDecimal.ZERO;
@@ -228,10 +237,10 @@ public class ProjectionService {
             Map<Long, String>     cardNamesYm   = new LinkedHashMap<>();
 
             for (CreditCard card : cardsWithBalance) {
-                LocalDate due = cardDueDates.get(card);
-                if (due != null && YearMonth.from(due).equals(ym)) {
-                    cardTotalsYm.put(card.getId(), card.getUsedAmount());
-                    cardDueDaysYm.put(card.getId(), due.getDayOfMonth());
+                BigDecimal bill = cardBillsByMonth.get(card.getId()).get(ym);
+                if (bill != null) {
+                    cardTotalsYm.put(card.getId(), bill);
+                    cardDueDaysYm.put(card.getId(), Math.min(card.getDueDay(), ym.lengthOfMonth()));
                     cardNamesYm.put(card.getId(), card.getName());
                 }
             }
@@ -316,6 +325,7 @@ public class ProjectionService {
             BigDecimal startBalance, LocalDate today, YearMonth ym,
             List<Entry> recurring, List<EntryInstallment> installmentsDue,
             List<CreditCard> cards, Map<CreditCard, LocalDate> cardDueDates,
+            Map<Long, Map<YearMonth, BigDecimal>> cardBillsByMonth,
             List<Entry> simpleEntries) {
 
         Map<Integer, List<CashFlowEvent>> byDay = new TreeMap<>();
@@ -377,7 +387,7 @@ public class ProjectionService {
             if (due == null || !YearMonth.from(due).equals(ym)) continue;
             BigDecimal cardInstExtra = cardInstTotals.getOrDefault(card.getId(), BigDecimal.ZERO);
             int day = due.getDayOfMonth();
-            BigDecimal total = card.getUsedAmount().add(cardInstExtra);
+            BigDecimal total = cardBillsByMonth.get(card.getId()).getOrDefault(ym, BigDecimal.ZERO).add(cardInstExtra);
             if (total.compareTo(BigDecimal.ZERO) > 0) {
                 byDay.computeIfAbsent(day, k -> new ArrayList<>())
                         .add(new CashFlowEvent(day, "Fatura: " + card.getName(), "EXPENSE",
@@ -544,6 +554,43 @@ public class ProjectionService {
                 ? YearMonth.from(chargeDate)
                 : YearMonth.from(chargeDate).plusMonths(1);
         return due > closing ? closingMonth : closingMonth.plusMonths(1);
+    }
+
+    /**
+     * Distribui o valor em aberto do cartão pelo mês de vencimento das faturas.
+     * O cartão não registra qual fatura cada pagamento quitou, então considera que os pagamentos
+     * quitam as mais antigas: as faturas a vencer são preenchidas da mais nova para a mais antiga,
+     * e o restante (faturas vencidas ou valor sem lançamento) fica no vencimento do mês atual.
+     */
+    private Map<YearMonth, BigDecimal> allocateCardBills(CreditCard card, List<Entry> entries, LocalDate today) {
+        TreeMap<YearMonth, BigDecimal> invoices = new TreeMap<>();
+        for (Entry e : entries) {
+            YearMonth closingMonth;
+            if (e.getInvoiceMonth() != null && !e.getInvoiceMonth().isBlank()) {
+                closingMonth = YearMonth.parse(e.getInvoiceMonth());
+            } else if (e.getEntryDate() != null) {
+                closingMonth = card.closingMonthFor(e.getEntryDate());
+            } else {
+                continue;
+            }
+            YearMonth dueMonth = card.getDueDay() > card.getClosingDay() ? closingMonth : closingMonth.plusMonths(1);
+            if (dueMonth.atDay(Math.min(card.getDueDay(), dueMonth.lengthOfMonth())).isBefore(today)) continue;
+            invoices.merge(dueMonth, "INCOME".equals(e.getType()) ? e.getAmount().negate() : e.getAmount(),
+                    BigDecimal::add);
+        }
+
+        Map<YearMonth, BigDecimal> bills = new HashMap<>();
+        BigDecimal remaining = card.getUsedAmount();
+        for (Map.Entry<YearMonth, BigDecimal> invoice : invoices.descendingMap().entrySet()) {
+            BigDecimal bill = invoice.getValue().min(remaining);
+            if (bill.compareTo(BigDecimal.ZERO) <= 0) continue;
+            bills.put(invoice.getKey(), bill);
+            remaining = remaining.subtract(bill);
+        }
+        if (remaining.compareTo(BigDecimal.ZERO) > 0) {
+            bills.merge(YearMonth.from(today), remaining, BigDecimal::add);
+        }
+        return bills;
     }
 
     private LocalDate cardNextDueDate(CreditCard card) {
