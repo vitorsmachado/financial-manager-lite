@@ -1112,6 +1112,8 @@
                     <div class="card border-0 shadow-sm text-center py-3">
                         <div class="text-muted small mb-1">Total da Fatura</div>
                         <div class="fs-4 fw-bold text-danger" th:text="${#numbers.formatCurrency(invoiceTotal)}"></div>
+                        <div th:if="${not #lists.isEmpty(invoiceRecurringPreview)}" class="text-muted small"
+                             th:text="'Previsto com recorrentes: ' + ${#numbers.formatCurrency(invoiceExpectedTotal)}"></div>
                     </div>
                 </div>
                 <div class="col-sm-6 col-lg-3">
@@ -1219,16 +1221,35 @@
                                     </form>
                                 </td>
                             </tr>
-                            <tr th:if="${#lists.isEmpty(invoiceTransactions)}">
+                            <tr th:each="p : ${invoiceRecurringPreview}" class="table-light">
+                                <td class="text-muted small"
+                                    th:text="${#temporals.format(p.chargeDate,'dd/MM/yy')}"></td>
+                                <td>
+                                    <span th:text="${p.description}"></span>
+                                    <span class="badge bg-info text-dark ms-1"
+                                          title="Recorrente ainda não lançada. Não faz parte do valor a pagar até ser lançada.">Prevista</span>
+                                </td>
+                                <td><span class="badge bg-secondary" th:text="${p.category ?: '-'}"></span></td>
+                                <td class="text-end fw-semibold text-muted"
+                                    th:text="${'-' + #numbers.formatCurrency(p.amount)}"></td>
+                                <td></td>
+                            </tr>
+                            <tr th:if="${#lists.isEmpty(invoiceTransactions) and #lists.isEmpty(invoiceRecurringPreview)}">
                                 <td colspan="5" class="text-center text-muted py-4">Nenhum lançamento neste período.</td>
                             </tr>
                         </tbody>
-                        <tfoot th:if="${not #lists.isEmpty(invoiceTransactions) or not #lists.isEmpty(invoiceParcelas)}"
+                        <tfoot th:if="${not #lists.isEmpty(invoiceTransactions) or not #lists.isEmpty(invoiceParcelas) or not #lists.isEmpty(invoiceRecurringPreview)}"
                                class="table-light">
                             <tr>
                                 <td colspan="3" class="fw-bold text-end">Total da Fatura</td>
                                 <td class="fw-bold text-end text-danger"
                                     th:text="${'-' + #numbers.formatCurrency(invoiceTotal)}"></td>
+                                <td></td>
+                            </tr>
+                            <tr th:if="${not #lists.isEmpty(invoiceRecurringPreview)}">
+                                <td colspan="3" class="text-end text-muted">Previsto com recorrentes</td>
+                                <td class="text-end text-muted"
+                                    th:text="${'-' + #numbers.formatCurrency(invoiceExpectedTotal)}"></td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -1726,9 +1747,10 @@
                     </div>
                     <div class="row g-3 mb-3" id="erDayGroup">
                         <div class="col-sm-6">
-                            <label class="form-label fw-semibold">Dia do Mês</label>
+                            <label class="form-label fw-semibold" id="erDayLabel">Dia do Mês</label>
                             <input type="number" name="dayOfMonth" id="erDayOfMonth" class="form-control"
                                    min="1" max="28" placeholder="ex: 10"/>
+                            <div class="form-text text-muted" id="erDayHint" style="display:none;"></div>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -1741,7 +1763,8 @@
                             </optgroup>
                             <optgroup label="Cartões de Crédito">
                                 <option th:each="c : ${cards}"
-                                        th:value="${'card_' + c.id}" th:text="${'Cartão: ' + c.name}"></option>
+                                        th:value="${'card_' + c.id}" th:text="${'Cartão: ' + c.name}"
+                                        th:data-due-day="${c.dueDay}"></option>
                             </optgroup>
                         </select>
                         <input type="hidden" name="accountId"    id="erAccountId"/>
@@ -2251,22 +2274,21 @@
         const dayInput = document.getElementById('uDayOfMonth');
 
         if (isRec) {
-            const autoApply = document.getElementById('uAutoApply')?.checked || false;
-            if (isCard && !autoApply) {
-                dayGroup.style.display = 'none';
-                dayInput.disabled = true;
+            dayGroup.style.display = '';
+            dayInput.disabled = false;
+            dayInput.required = isCard;
+            if (isCard) {
+                const destSel = document.getElementById('uDestino');
+                const dueDay  = destSel.options[destSel.selectedIndex]?.getAttribute('data-due-day');
+                dayLabel.textContent = 'Dia da cobrança no cartão';
+                dayHint.textContent  = 'Será pago na fatura do cartão, que vence dia ' + dueDay + '.';
+                dayHint.style.display = '';
             } else {
-                dayGroup.style.display = '';
-                dayInput.disabled = false;
                 dayLabel.textContent = meDevem ? 'Dia de Recebimento' : 'Dia do Mês';
-                if (isCard && autoApply) {
-                    dayHint.textContent = 'Dia do mês em que o lançamento automático será aplicado na fatura.';
-                    dayHint.style.display = '';
-                } else {
-                    dayHint.style.display = 'none';
-                }
+                dayHint.style.display = 'none';
             }
         } else if (isInst) {
+            dayInput.required = false;
             dayGroup.style.display = '';
             dayInput.disabled = false;
             if (isCard) {
@@ -2284,6 +2306,7 @@
         } else {
             dayGroup.style.display = 'none';
             dayInput.disabled = true;
+            dayInput.required = false;
         }
     }
 
@@ -2359,7 +2382,7 @@
             if (day) {
                 const lastDay = new Date(today.getFullYear(), today.getMonth() + i + 1, 0).getDate();
                 const clamped = new Date(today.getFullYear(), today.getMonth() + i, Math.min(parseInt(day), lastDay));
-                dueVal = clamped.toISOString().substring(0, 10);
+                dueVal = localDateStr(clamped);
             }
             list.insertAdjacentHTML('beforeend',
                 `<div class="row g-1 mb-1 align-items-center">
@@ -2385,7 +2408,7 @@
 
     // Inicializa o modal quando abre
     document.getElementById('addEntryModal')?.addEventListener('show.bs.modal', function () {
-        document.getElementById('uEntryDate').value = new Date().toISOString().substring(0, 10);
+        document.getElementById('uEntryDate').value = localDateStr(new Date());
         uOnTypeChange(document.getElementById('uType').value);
         uUpdateUniformPreview();
     });
@@ -2393,6 +2416,11 @@
     // ═══════════════════════════════════════════════════════════
     // EDITAR RECORRENTE
     // ═══════════════════════════════════════════════════════════
+
+    // Data local do navegador: toISOString() usa UTC e adianta um dia a partir das 21h
+    function localDateStr(d) {
+        return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    }
 
     function uOpenEditRecurring(btn) {
         const d = btn.dataset;
@@ -2427,9 +2455,14 @@
     function erOnDestinoChange(val) {
         document.getElementById('erAccountId').value = val.startsWith('acc_')  ? val.substring(4) : '';
         document.getElementById('erCardId').value    = val.startsWith('card_') ? val.substring(5) : '';
-        const isCard     = val.startsWith('card_');
-        const autoApply  = document.getElementById('erAutoApply')?.checked || false;
-        document.getElementById('erDayGroup').style.display = (isCard && !autoApply) ? 'none' : '';
+        const isCard  = val.startsWith('card_');
+        const destSel = document.getElementById('erDestino');
+        const dueDay  = destSel.options[destSel.selectedIndex]?.getAttribute('data-due-day');
+        const hint    = document.getElementById('erDayHint');
+        document.getElementById('erDayLabel').textContent = isCard ? 'Dia da cobrança no cartão' : 'Dia do Mês';
+        document.getElementById('erDayOfMonth').required = isCard;
+        hint.textContent = isCard ? 'Será pago na fatura do cartão, que vence dia ' + dueDay + '.' : '';
+        hint.style.display = isCard ? '' : 'none';
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -2452,7 +2485,7 @@
         document.getElementById('applySingleTitle').textContent = 'Lançar: ' + desc;
         document.getElementById('applySingleDesc').textContent = desc;
         document.getElementById('applySingleForm').action = '/recurring/' + id + '/apply-single';
-        document.getElementById('applySingleDate').value = new Date().toISOString().substring(0, 10);
+        document.getElementById('applySingleDate').value = localDateStr(new Date());
         document.getElementById('applySingleHint').textContent =
             dir === 'RECEIVABLE'
                 ? 'Altere a data para registrar o recebimento no dia correto.'
@@ -2504,7 +2537,7 @@
     function openMarkDefault(btn) {
         document.getElementById('markDefaultForm').action = '/debts/' + btn.dataset.id + '/mark-default';
         document.getElementById('markDefaultDesc').textContent = btn.dataset.desc || '';
-        document.getElementById('markDefaultSince').value = new Date().toISOString().substring(0, 10);
+        document.getElementById('markDefaultSince').value = localDateStr(new Date());
         const rate = parseFloat(btn.dataset.rate);
         document.getElementById('markDefaultRate').value = rate > 0 ? (rate * 100).toFixed(2) : '';
         document.getElementById('markDefaultLateFee').value = '2';
@@ -2723,7 +2756,7 @@
                 document.getElementById('projLateFee').textContent   = fmtBRL(data.lateFeeAmount);
                 document.getElementById('projRate').textContent      = (data.monthlyRate * 100).toFixed(2) + '% a.m.';
 
-                const todayKey = today.toISOString().substring(0, 10);
+                const todayKey = localDateStr(today);
                 const todayVal = data.projection[todayKey];
                 document.getElementById('projToday').textContent = todayVal ? fmtBRL(todayVal) : '—';
 
@@ -2746,7 +2779,7 @@
 
         const firstWeekDay = new Date(calYear, calMonth, 1).getDay();
         const daysInMonth  = new Date(calYear, calMonth + 1, 0).getDate();
-        const todayKey     = new Date().toISOString().substring(0, 10);
+        const todayKey     = localDateStr(new Date());
         const sinceKey     = projData.defaultSinceDate;
 
         let html = '<table class="table table-bordered table-sm text-center mb-0" style="table-layout:fixed;">';

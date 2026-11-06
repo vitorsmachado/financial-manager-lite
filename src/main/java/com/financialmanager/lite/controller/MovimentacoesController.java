@@ -188,6 +188,12 @@ public class MovimentacoesController {
             BigDecimal adjustedAvailableLimit = card.getAvailableLimit().subtract(installmentsCommitted)
                     .max(BigDecimal.ZERO);
             BigDecimal total = txTotal.add(parcelasTotal);
+            var recurringPreview = entryService.previewRecurringForInvoice(user, card, YearMonth.from(period[1]));
+            BigDecimal expectedTotal = recurringPreview.stream()
+                    .map(EntryService.InvoiceRecurringPreview::amount)
+                    .reduce(total, BigDecimal::add);
+            model.addAttribute("invoiceRecurringPreview", recurringPreview);
+            model.addAttribute("invoiceExpectedTotal", expectedTotal);
             BigDecimal minPayment = total.multiply(card.getMinimumPaymentRate())
                     .setScale(2, RoundingMode.HALF_EVEN);
 

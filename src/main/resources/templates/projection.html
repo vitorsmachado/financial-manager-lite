@@ -302,6 +302,8 @@ table tbody.collapse.show { display: table-row-group !important; }
                         <div class="text-muted small">Faturas cartão</div>
                         <div class="fw-semibold text-danger"
                              th:text="${'-' + #numbers.formatCurrency(selected.cardBills)}"></div>
+                        <div th:if="${selected.cardBillsRecurring > 0}" class="text-muted small"
+                             th:text="'inclui ' + ${#numbers.formatCurrency(selected.cardBillsRecurring)} + ' em recorrentes'"></div>
                     </div>
                 </div>
                 <div class="col-6 col-md-3">

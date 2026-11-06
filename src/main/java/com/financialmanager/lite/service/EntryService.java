@@ -16,6 +16,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,6 +36,35 @@ public class EntryService {
 
     public List<Entry> findRecurringActiveByUser(User user) {
         return entryRepository.findRecurringActiveByUser(user);
+    }
+
+    /** Cobrança recorrente ainda não lançada que deve cair em uma fatura do cartão. */
+    public record InvoiceRecurringPreview(LocalDate chargeDate, String description,
+                                          String category, BigDecimal amount) {}
+
+    /** Recorrentes previstas para a fatura que fecha em invoiceMonth; não fazem parte do valor em aberto. */
+    public List<InvoiceRecurringPreview> previewRecurringForInvoice(User user, CreditCard card, YearMonth invoiceMonth) {
+        YearMonth current = YearMonth.now();
+        List<InvoiceRecurringPreview> previews = new ArrayList<>();
+        for (Entry rec : entryRepository.findRecurringActiveByUser(user)) {
+            if (!"EXPENSE".equals(rec.getType()) || rec.getCreditCard() == null
+                    || !card.getId().equals(rec.getCreditCard().getId())) continue;
+
+            // A cobrança pode ser do mês da fatura ou do mês anterior, se veio depois do fechamento
+            for (YearMonth chargeMonth : List.of(invoiceMonth.minusMonths(1), invoiceMonth)) {
+                if (chargeMonth.isBefore(current) || !appliesThisMonth(rec, chargeMonth)) continue;
+                if (chargeMonth.toString().equals(rec.getLastAppliedMonth())) continue;
+
+                int day = rec.getDayOfMonth() != null ? rec.getDayOfMonth() : 1;
+                LocalDate chargeDate = chargeMonth.atDay(Math.min(day, chargeMonth.lengthOfMonth()));
+                if (card.closingMonthFor(chargeDate).equals(invoiceMonth)) {
+                    previews.add(new InvoiceRecurringPreview(chargeDate, rec.getDescription(),
+                            rec.getCategory(), rec.getAmount()));
+                }
+            }
+        }
+        previews.sort(java.util.Comparator.comparing(InvoiceRecurringPreview::chargeDate));
+        return previews;
     }
 
     public List<Entry> findInstallmentsByUser(User user) {

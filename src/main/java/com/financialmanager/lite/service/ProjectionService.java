@@ -38,7 +38,7 @@ public class ProjectionService {
             YearMonth month, BigDecimal openingBalance,
             BigDecimal recurringIncome, BigDecimal receivableIncome, BigDecimal simpleIncome,
             BigDecimal recurringExpenses, BigDecimal debtInstallments, BigDecimal simpleExpenses,
-            BigDecimal cardBills, BigDecimal closingBalance,
+            BigDecimal cardBills, BigDecimal cardBillsRecurring, BigDecimal closingBalance,
             List<CashFlowEvent> events, List<DailyBreakdown> dailyBreakdown) {
         public BigDecimal netChange() {
             return recurringIncome.add(receivableIncome).add(simpleIncome)
@@ -83,7 +83,15 @@ public class ProjectionService {
                     allocateCardBills(card, cardEntries.getOrDefault(card.getId(), List.of()), today));
         }
 
-        List<Entry> recurringForNow = recurring.stream()
+        // Recorrente de cartão sai do saldo na fatura, não no dia da cobrança
+        List<Entry> cardRecurring = recurring.stream()
+                .filter(e -> isCardRecurring(e, cardBillsByMonth)).toList();
+        List<Entry> accountRecurring = recurring.stream()
+                .filter(e -> !isCardRecurring(e, cardBillsByMonth)).toList();
+        Map<YearMonth, BigDecimal> recurringInCardBills =
+                addRecurringToCardBills(cardRecurring, cardBillsByMonth, currentMonth, monthsAfter, today);
+
+        List<Entry> recurringForNow = accountRecurring.stream()
                 .filter(e -> entryService.appliesThisMonth(e, currentMonth))
                 .filter(e -> !currentMonth.toString().equals(e.getLastAppliedMonth()))
                 .toList();
@@ -170,7 +178,8 @@ public class ProjectionService {
                 currentMonth, currentBalance,
                 curRecIncome, curReceivable, curSimpleIncome,
                 curRecExpense, curDebtInsts, curSimpleExpense,
-                curCardBills, currentProjectedClosing, curEvents, curDaily);
+                curCardBills, recurringInCardBills.getOrDefault(currentMonth, BigDecimal.ZERO),
+                currentProjectedClosing, curEvents, curDaily);
 
         // ── Future projections ────────────────────────────────────────────────
         YearMonth now = YearMonth.now();
@@ -190,7 +199,7 @@ public class ProjectionService {
                     .filter(e -> "INCOME".equals(e.getType()) && entryService.appliesThisMonth(e, ym)).toList();
             BigDecimal recurringIncome = sumEntries(incomeItems);
 
-            List<Entry> expenseItems = recurring.stream()
+            List<Entry> expenseItems = accountRecurring.stream()
                     .filter(e -> "EXPENSE".equals(e.getType()) && entryService.appliesThisMonth(e, ym)).toList();
             BigDecimal recurringExpenses = sumEntries(expenseItems);
 
@@ -274,7 +283,7 @@ public class ProjectionService {
             futureProjections.add(new MonthProjection(ym, opening,
                     recurringIncome, receivableIncome, simpleIncome,
                     recurringExpenses, debtInstallments, simpleExpenses,
-                    cardBills, balance, events, daily));
+                    cardBills, recurringInCardBills.getOrDefault(ym, BigDecimal.ZERO), balance, events, daily));
         }
 
         // ── Past projections ──────────────────────────────────────────────────
@@ -303,7 +312,7 @@ public class ProjectionService {
             pastProjections.add(0, new MonthProjection(ym, opening,
                     recurringIncome, BigDecimal.ZERO, BigDecimal.ZERO,
                     recurringExpenses, BigDecimal.ZERO, BigDecimal.ZERO,
-                    BigDecimal.ZERO, closing, events, daily));
+                    BigDecimal.ZERO, BigDecimal.ZERO, closing, events, daily));
         }
 
         List<MonthProjection> projections = new ArrayList<>();
@@ -573,8 +582,8 @@ public class ProjectionService {
             } else {
                 continue;
             }
-            YearMonth dueMonth = card.getDueDay() > card.getClosingDay() ? closingMonth : closingMonth.plusMonths(1);
-            if (dueMonth.atDay(Math.min(card.getDueDay(), dueMonth.lengthOfMonth())).isBefore(today)) continue;
+            YearMonth dueMonth = dueMonthOf(card, closingMonth);
+            if (isDuePast(card, dueMonth, today)) continue;
             invoices.merge(dueMonth, "INCOME".equals(e.getType()) ? e.getAmount().negate() : e.getAmount(),
                     BigDecimal::add);
         }
@@ -591,6 +600,47 @@ public class ProjectionService {
             bills.merge(YearMonth.from(today), remaining, BigDecimal::add);
         }
         return bills;
+    }
+
+    private boolean isCardRecurring(Entry e, Map<Long, Map<YearMonth, BigDecimal>> activeCardBills) {
+        return "EXPENSE".equals(e.getType()) && e.getCreditCard() != null
+                && activeCardBills.containsKey(e.getCreditCard().getId());
+    }
+
+    /**
+     * Soma as cobranças recorrentes ainda não lançadas à fatura em que cada uma cai.
+     * Devolve o total de recorrentes por mês de vencimento. Depois de lançada, a cobrança
+     * vira movimentação do cartão e passa a ser contada por allocateCardBills.
+     */
+    private Map<YearMonth, BigDecimal> addRecurringToCardBills(
+            List<Entry> cardRecurring, Map<Long, Map<YearMonth, BigDecimal>> cardBillsByMonth,
+            YearMonth currentMonth, int monthsAfter, LocalDate today) {
+        Map<YearMonth, BigDecimal> totals = new HashMap<>();
+        for (Entry rec : cardRecurring) {
+            CreditCard card = rec.getCreditCard();
+            for (int i = 0; i <= monthsAfter; i++) {
+                YearMonth chargeMonth = currentMonth.plusMonths(i);
+                if (!entryService.appliesThisMonth(rec, chargeMonth)) continue;
+                if (chargeMonth.toString().equals(rec.getLastAppliedMonth())) continue;
+
+                LocalDate chargeDate = chargeMonth.atDay(Math.min(dayOf(rec), chargeMonth.lengthOfMonth()));
+                YearMonth dueMonth = dueMonthOf(card, card.closingMonthFor(chargeDate));
+                // Cobrança atrasada cuja fatura já venceu entra no próximo vencimento
+                if (isDuePast(card, dueMonth, today)) dueMonth = currentMonth.plusMonths(1);
+
+                cardBillsByMonth.get(card.getId()).merge(dueMonth, rec.getAmount(), BigDecimal::add);
+                totals.merge(dueMonth, rec.getAmount(), BigDecimal::add);
+            }
+        }
+        return totals;
+    }
+
+    private YearMonth dueMonthOf(CreditCard card, YearMonth closingMonth) {
+        return card.getDueDay() > card.getClosingDay() ? closingMonth : closingMonth.plusMonths(1);
+    }
+
+    private boolean isDuePast(CreditCard card, YearMonth dueMonth, LocalDate today) {
+        return dueMonth.atDay(Math.min(card.getDueDay(), dueMonth.lengthOfMonth())).isBefore(today);
     }
 
     private LocalDate cardNextDueDate(CreditCard card) {

@@ -23,6 +23,7 @@ import java.time.YearMonth;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -126,6 +127,65 @@ class ProjectionServiceTest {
                     purchase(card, "INCOME", "50", now.plusMonths(1)));
 
             assertThat(bills.get(1)).isEqualByComparingTo("250");
+        }
+    }
+
+    @Nested
+    @DisplayName("recorrente no cartão")
+    class CardRecurring {
+
+        // Dia 23 fica depois do fechamento (10): a cobrança cai na fatura do mês seguinte.
+        private Entry recurring(CreditCard card, String lastApplied) {
+            return Entry.builder().user(user).mode("RECURRING").type("EXPENSE").description("Claude")
+                    .amount(new BigDecimal("100")).frequency("MONTHLY").dayOfMonth(23)
+                    .creditCard(card).lastAppliedMonth(lastApplied).build();
+        }
+
+        private List<MonthProjection> project(CreditCard card, Entry... recurring) {
+            when(creditCardRepository.findByUserAndActiveTrue(user)).thenReturn(List.of(card));
+            when(entryRepository.findRecurringActiveByUser(user)).thenReturn(List.of(recurring));
+            when(entryService.appliesThisMonth(any(), any())).thenReturn(true);
+            return projectionService.compute(user, null, 0, 3).projections();
+        }
+
+        @Test
+        @DisplayName("entra na fatura em que cai, não como saída fixa no dia da cobrança")
+        void goesIntoInvoiceInsteadOfFixedExpense() {
+            CreditCard card = card("0");
+
+            List<MonthProjection> months = project(card, recurring(card, null));
+
+            assertThat(months.get(1).recurringExpenses()).isEqualByComparingTo("0");
+            assertThat(months.get(1).cardBills()).isEqualByComparingTo("100");
+            assertThat(months.get(1).cardBillsRecurring()).isEqualByComparingTo("100");
+            assertThat(months.get(1).events()).extracting(ProjectionService.CashFlowEvent::description)
+                    .containsExactly("Fatura: Cartão");
+            assertThat(months.get(1).events().get(0).day()).isEqualTo(20);
+        }
+
+        @Test
+        @DisplayName("já lançada no mês não é contada de novo")
+        void alreadyAppliedIsNotCountedAgain() {
+            CreditCard card = card("0");
+
+            List<MonthProjection> months = project(card, recurring(card, now.toString()));
+
+            // A cobrança deste mês cairia na fatura do mês seguinte; a de lá cai dois meses à frente.
+            assertThat(months.get(1).cardBills()).isEqualByComparingTo("0");
+            assertThat(months.get(2).cardBills()).isEqualByComparingTo("100");
+        }
+
+        @Test
+        @DisplayName("sem cartão ativo continua como saída fixa")
+        void withoutActiveCardStaysFixedExpense() {
+            CreditCard inactive = card("0");
+            ReflectionTestUtils.setField(inactive, "id", 99L);
+            CreditCard active = card("0");
+
+            List<MonthProjection> months = project(active, recurring(inactive, null));
+
+            assertThat(months.get(1).recurringExpenses()).isEqualByComparingTo("100");
+            assertThat(months.get(1).cardBills()).isEqualByComparingTo("0");
         }
     }
 }

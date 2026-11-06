@@ -19,6 +19,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -509,6 +510,83 @@ class EntryServiceTest {
 
             assertThat(saved.getApplied()).isTrue();
             assertThat(acc.getBalance()).isEqualByComparingTo("1100");
+        }
+    }
+
+    // =========================================================================
+    // recorrentes previstas na fatura
+    // =========================================================================
+
+    @Nested
+    @DisplayName("previewRecurringForInvoice")
+    class PreviewRecurringForInvoice {
+
+        private final YearMonth now = YearMonth.now();
+
+        // Fechamento no dia 10
+        private CreditCard card(long id) {
+            CreditCard card = cardWithUsedAmount(BigDecimal.ZERO);
+            ReflectionTestUtils.setField(card, "id", id);
+            return card;
+        }
+
+        private Entry recurring(CreditCard card, String type, int day, String lastApplied) {
+            return Entry.builder().user(user).mode("RECURRING").type(type).description("Claude")
+                    .amount(new BigDecimal("100")).frequency("MONTHLY").dayOfMonth(day)
+                    .creditCard(card).lastAppliedMonth(lastApplied).build();
+        }
+
+        private List<EntryService.InvoiceRecurringPreview> preview(CreditCard card, YearMonth invoice, Entry... recurring) {
+            when(entryRepository.findRecurringActiveByUser(user)).thenReturn(List.of(recurring));
+            return entryService.previewRecurringForInvoice(user, card, invoice);
+        }
+
+        @Test
+        @DisplayName("cobrança depois do fechamento cai na fatura do mês seguinte")
+        void chargeAfterClosingFallsInNextInvoice() {
+            CreditCard card = card(1L);
+            Entry rec = recurring(card, "EXPENSE", 23, null);
+
+            assertThat(preview(card, now.plusMonths(1), rec))
+                    .extracting(EntryService.InvoiceRecurringPreview::chargeDate)
+                    .containsExactly(now.atDay(23));
+            assertThat(preview(card, now, rec)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("cobrança até o fechamento cai na fatura do próprio mês")
+        void chargeBeforeClosingFallsInSameMonthInvoice() {
+            CreditCard card = card(1L);
+
+            assertThat(preview(card, now.plusMonths(1), recurring(card, "EXPENSE", 5, null)))
+                    .extracting(EntryService.InvoiceRecurringPreview::chargeDate)
+                    .containsExactly(now.plusMonths(1).atDay(5));
+        }
+
+        @Test
+        @DisplayName("já lançada no mês não aparece como prevista")
+        void alreadyAppliedIsNotPreviewed() {
+            CreditCard card = card(1L);
+
+            assertThat(preview(card, now.plusMonths(1), recurring(card, "EXPENSE", 23, now.toString()))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("fatura de mês passado não mostra previsão")
+        void pastInvoiceHasNoPreview() {
+            CreditCard card = card(1L);
+
+            assertThat(preview(card, now.minusMonths(2), recurring(card, "EXPENSE", 5, null))).isEmpty();
+        }
+
+        @Test
+        @DisplayName("ignora outro cartão e receita")
+        void ignoresOtherCardAndIncome() {
+            CreditCard card = card(1L);
+
+            assertThat(preview(card, now.plusMonths(1),
+                    recurring(card(2L), "EXPENSE", 5, null),
+                    recurring(card, "INCOME", 5, null))).isEmpty();
         }
     }
 }

@@ -78,7 +78,7 @@ class DashboardServiceTest {
         return new MonthProjection(ym, new BigDecimal(opening),
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, new BigDecimal(closing), List.of(events), List.of());
+                BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal(closing), List.of(events), List.of());
     }
 
     private void stubCurrentMonth(List<DayFlow> flow, String monthEndBalance) {
