@@ -1,7 +1,11 @@
 package com.financialmanager.lite.config;
 
+import com.financialmanager.lite.dto.InstallmentEntryDTO;
+import com.financialmanager.lite.dto.RecurringEntryDTO;
+import com.financialmanager.lite.dto.SimpleEntryDTO;
 import com.financialmanager.lite.model.*;
 import com.financialmanager.lite.repository.*;
+import com.financialmanager.lite.service.EntryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -19,6 +23,7 @@ import java.util.List;
 public class DemoDataInitializer implements ApplicationRunner {
 
     private static final String DEMO_EMAIL = "demo@demo.com";
+    private static final String EXAMPLE_SUFFIX = " (exemplo)";
 
     private final UserRepository             userRepository;
     private final BankRepository             bankRepository;
@@ -29,12 +34,16 @@ public class DemoDataInitializer implements ApplicationRunner {
     private final BudgetRepository           budgetRepository;
     private final UserCategoryRepository     userCategoryRepository;
     private final PasswordEncoder            passwordEncoder;
+    private final EntryService               entryService;
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        if (userRepository.existsByEmail(DEMO_EMAIL)) return;
+        User user = userRepository.findByEmail(DEMO_EMAIL).orElseGet(this::createDemoData);
+        addFeatureExamples(user);
+    }
 
+    private User createDemoData() {
         User user = userRepository.save(User.builder()
                 .name("Demo")
                 .email(DEMO_EMAIL)
@@ -186,6 +195,47 @@ public class DemoDataInitializer implements ApplicationRunner {
         budget(user, "Assinaturas",   "200.00",  "67.80",  period); // 45.90+21.90
         budget(user, "Saúde",         "300.00",   "0.00",  period);
         budget(user, "Lazer",         "400.00",   "0.00",  period);
+        return user;
+    }
+
+    /**
+     * Exemplos de movimentações agendadas, receita parcelada e recorrente no cartão.
+     * Só acrescenta dados, então também atualiza uma demo que já existe.
+     */
+    private void addFeatureExamples(User user) {
+        if (entryRepository.existsByUserAndDescriptionEndingWith(user, EXAMPLE_SUFFIX)) return;
+        List<Account> accounts = accountRepository.findByUserAndActiveTrue(user);
+        List<CreditCard> cards = creditCardRepository.findByUserAndActiveTrue(user);
+        if (accounts.isEmpty() || cards.isEmpty()) return;
+
+        Long accountId = accounts.get(0).getId();
+        Long cardId    = cards.get(0).getId();
+        LocalDate today = LocalDate.now();
+
+        entryService.createRecurring(user, RecurringEntryDTO.builder()
+                .description("Claude" + EXAMPLE_SUFFIX).amount(new BigDecimal("110.00"))
+                .type("EXPENSE").category("Assinaturas")
+                .dayOfMonth(23).creditCardId(cardId).build());
+
+        simpleExample(user, "Freela" + EXAMPLE_SUFFIX, "800.00", "INCOME", today.plusDays(15), accountId, null);
+        simpleExample(user, "Reembolso" + EXAMPLE_SUFFIX, "150.00", "INCOME", today.plusDays(20), null, null);
+        simpleExample(user, "IPVA" + EXAMPLE_SUFFIX, "400.00", "EXPENSE", today.plusDays(10), accountId, null);
+        simpleExample(user, "Passagem" + EXAMPLE_SUFFIX, "600.00", "EXPENSE", today.plusDays(45), null, cardId);
+
+        LocalDate firstReceipt = today.plusDays(7);
+        entryService.createInstallment(user, InstallmentEntryDTO.builder()
+                .description("Venda parcelada" + EXAMPLE_SUFFIX).amount(new BigDecimal("900.00"))
+                .type("INCOME").category("Outros").personName("Cliente")
+                .totalInstallments(3).dayOfMonth(firstReceipt.getDayOfMonth())
+                .accountId(accountId).baseDate(firstReceipt).build());
+    }
+
+    private void simpleExample(User user, String description, String amount, String type,
+                               LocalDate date, Long accountId, Long cardId) {
+        entryService.createSimple(user, SimpleEntryDTO.builder()
+                .description(description).amount(new BigDecimal(amount))
+                .type(type).category("Outros").entryDate(date)
+                .accountId(accountId).creditCardId(cardId).build());
     }
 
     private void entry(User user, Account account, CreditCard card,

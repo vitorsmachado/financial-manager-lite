@@ -17,6 +17,8 @@ import java.util.Optional;
 
 public interface EntryRepository extends JpaRepository<Entry, Long> {
 
+    boolean existsByUserAndDescriptionEndingWith(User user, String suffix);
+
     Optional<Entry> findByIdAndUser(Long id, User user);
 
     // ── SIMPLE (lançamentos) ──────────────────────────────────────────────
